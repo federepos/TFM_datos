@@ -1,0 +1,1247 @@
+---
+title: "TFM - base de datosMD"
+author: "Federico José Saviotti Brunacci"
+date: "7/10/2021"
+output:
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE , comment = NULL, cache = TRUE, warning = FALSE)
+```
+
+# Librerías 
+
+```{r, include=FALSE}
+library(car)
+library(ggplot2)
+library(modelr)
+library(tidyverse)
+library(class)
+library(UBL)
+
+library(kernlab)
+library(naivebayes)
+library(caret)
+library(nnet)
+require(randomForest)
+
+require(e1071)
+require(leaps)
+require(pls)
+require(MASS)
+require(lars)
+```
+
+# Visualizar base de datos y preprocesado
+
+```{r}
+getwd()
+setwd("C:/Users/Federico/Desktop/MASTER/TFM/datos/")
+```
+
+Lectura de la base de datos
+
+```{r}
+BD <- read.csv("Indian Liver Patient Dataset (ILPD).csv", header = FALSE)
+colnames(BD) <- c("Edad", "Género", "TBil", "DBil", "Alkphos", "Sgpt", "Sgot", "TP", "Albúmina", "Ratio", "Condicion")
+
+summary(BD)
+```
+
+## Descripción del conjunto de datos
+
+```{r}
+str(BD)
+summary(BD)
+```
+
+### Reconversión de variables
+
+```{r}
+BD$Condicion <- as.factor(BD$Condicion)
+BD$Género <- as.factor(BD$Género)
+
+summary(BD)
+
+#El ratio tiene 4 valores vacíos, por tanto estas observaciones deberían eliminarse.
+#Lo mismo ocurre con los valores repetidos
+
+BD.0 <- na.omit(BD)
+BD.0 <- BD.0[!duplicated(BD.0), ]
+
+```
+
+La base de datos posee: 
+
+  - 566 pacientes (observaciones)
+  - 404 con hígado enfermo y 162 con hígado sano
+  - 11 variables
+  - Las Variables: 
+  
+Variables numéricas:
+*Edad*: Edad en años
+*TBil*: Bilirrubina total (mg/dL)
+*DBil*: Bilirrubina directa (mg/dL)
+*Alkphos*: Fosfatasa alcalina (U/L)
+*Sgpt*: Aminotransferasa alanina
+*Sgot*: Aminotransferasa aspartato
+*TP*: proteínas totales
+*Albúmina*. 
+*Ratio*: Ratio albúmina y Ratio globulina
+
+Variables factoriales:
+*Género*: Female - Mujer, Male - Hombre, variable factorial.
+*Condicion*: 1 - pacientes con problemas hepáticos, 2 - pacientes sin problemas hepáticos, variable factorial.
+
+  - Variable respuesta: Condicion
+  - Variables predictoras: Edad, género, TBil, DBil, Alkphos, Sgpt, Sgot, TP, Albúmina y Ratio.
+
+
+## Análisis exploratorio
+
+```{r}
+table(BD.0$Condicion)
+```
+
+  - *Los datos no están balanceados respecto a la condición del paciente*
+
+Rangos de variables:
+
+```{r}
+summary(BD.0)
+
+boxplot(BD.0[-c(2,11)], las=2, col="lightsalmon2", main="Variables numéricas")
+```
+
+  - El rango de las variables numéricas difiere enormemente en función del parámetro observado. También se observa que es debido a valores atípicos (outliers), por tanto, se puede aplicar normalización sobre los datos. 
+
+### Visualización de la variable respuesta 
+
+```{r}
+#Se ven los datos no balanceados y solapados
+
+par(mfrow=c(1,3))
+plot(BD.0$Edad, BD.0$TBil, col=BD.0$Condicion, 
+     xlab= "Edad pacientes", ylab= "Bilirrubina total")
+legend('topright', legend = levels(BD.0$Condicion), col = 1:2, cex = 0.8, pch = 1)
+
+plot(BD.0$DBil, BD.0$TBil, col=BD.0$Condicion, 
+     xlab= "Bilirrubina directa", ylab= "Bilirrubina total",
+     pch = 2)
+legend('topright', legend = levels(BD.0$Condicion), col = 1:2, cex = 0.8, pch = 2)
+
+plot(BD.0$Alkphos, BD.0$Sgpt, col=BD.0$Condicion, 
+     xlab= "Fosfatasa alcalina", ylab= "Aminoácido alanina",
+     pch = 5)
+legend('topright', legend = levels(BD.0$Condicion), col = 1:2, cex = 0.8, pch = 5)
+par(mfrow=c(1,1))
+```
+
+Los gráficos muestran la comparación entre diversas variables numéricas del modelo y el color de sus valores denota la clase a la que pertenece cada observación.
+
+Claramente hay un desbalanceo entre las 2 clases y un solapamiento entre las observaciones que dificultarán la clasificación, por tanto habrá que tratar de arreglar la base de datos para que los algoritmos den una predicción mejor.
+
+#### Submuestreo aleatorio
+
+Mediante el uso de la función `downSample` se puede aplicar un submuestreo que iguala el número de observaciones de la clase mayoritaria al de la minoritaria eliminando observaciones de manera aleatoria. Se ha aplicado una semilla concreta para evitar favorecer la reproducibilidad.
+
+```{r}
+set.seed(123)
+BD_DS <- downSample(BD.0[,-c(11)], BD.0$Condicion, yname = "Condicion")
+str(BD_DS)
+table(BD_DS$Condicion)
+```
+
+Se puede ver que ahora hay el mismo número de observaciones de la clase 1 y de la 2.
+
+  - *Representación gráfica de esta nueva base de datos*
+
+```{r}
+par(mfrow=c(1,3))
+plot(BD_DS$Edad, BD_DS$TBil, col=BD_DS$Condicion, 
+     xlab= "Edad pacientes", ylab= "Bilirrubina total")
+legend('topright', legend = levels(BD_DS$Condicion), col = 1:2, cex = 0.8, pch = 1)
+
+plot(BD_DS$DBil, BD_DS$TBil, col=BD_DS$Condicion, 
+     xlab= "Bilirrubina directa", ylab= "Bilirrubina total",
+     pch = 2)
+legend('topright', legend = levels(BD_DS$Condicion), col = 1:2, cex = 0.8, pch = 2)
+
+plot(BD_DS$Alkphos, BD_DS$Sgpt, col=BD_DS$Condicion, 
+     xlab= "Fosfatasa alcalina", ylab= "Aminoácido alanina",
+     pch = 5)
+legend('topright', legend = levels(BD_DS$Condicion), col = 1:2, cex = 0.8, pch = 5)
+par(mfrow=c(1,1))
+```
+
+Como se puede ver, ahora hay un menor número de observaciones de la clase 1.
+
+
+#### Submuestreo con Edited Nearest Neighbor (ENN)
+
+Este método, a diferencia del anterior, no iguala las observaciones, sino que utiliza el algoritmo de K vecinos cercanos (KNN) para eliminar valores de la clase mayoritaria que se encuentren muy cerca de la clase minoritaria. El paquete empleado es el de `UBL` y la función `ENNClassif`.
+
+```{r}
+set.seed(123)
+ENN_DAT <- ENNClassif(Condicion ~. , dat= BD.0, k= 5, dist= "HEOM", p= 2, Cl= 1)
+
+BD_ENN <- ENN_DAT[[1]]
+
+str(BD_ENN)
+table(BD_ENN$Condicion)
+```
+
+En este caso concreto se aplica para los 5 vecinos más cercanos utilizando una distancia que permite trabajar con variables tanto numéricas como factoriales.
+
+Las clases no quedan balanceadas, sin embargo como se puede vislumbrar en los gráficos hay un clareamiento en los datos.
+
+```{r}
+par(mfrow=c(1,3))
+plot(BD_ENN$Edad, BD_ENN$TBil, col=BD_ENN$Condicion, 
+     xlab= "Edad pacientes", ylab= "Bilirrubina total")
+legend('topright', legend = levels(BD_ENN$Condicion), col = 1:2, cex = 0.8, pch = 1)
+
+plot(BD_ENN$DBil, BD_ENN$TBil, col=BD_ENN$Condicion, 
+     xlab= "Bilirrubina directa", ylab= "Bilirrubina total",
+     pch = 2)
+legend('topright', legend = levels(BD_ENN$Condicion), col = 1:2, cex = 0.8, pch = 2)
+
+plot(BD_ENN$Alkphos, BD_ENN$Sgpt, col=BD_ENN$Condicion, 
+     xlab= "Fosfatasa alcalina", ylab= "Aminoácido alanina",
+     pch = 5)
+legend('topright', legend = levels(BD_ENN$Condicion), col = 1:2, cex = 0.8, pch = 5)
+par(mfrow=c(1,1))
+```
+
+#### ENN y submuestreo aleatorio
+
+Se aplica la primera técnica a la ya pulida en la 2da para ver si aumenta su poder predictor.
+
+```{r}
+set.seed(123)
+BD_ENN_DS <- downSample(BD_ENN[,-c(11)], BD_ENN$Condicion, yname = "Condicion")
+
+str(BD_ENN_DS)
+table(BD_ENN_DS$Condicion)
+```
+
+Vuelve a igualarse el número de observaciones
+
+```{r}
+par(mfrow=c(1,3))
+plot(BD_ENN_DS$Edad, BD_ENN_DS$TBil, col=BD_ENN_DS$Condicion, 
+     xlab= "Edad pacientes", ylab= "Bilirrubina total")
+legend('topright', legend = levels(BD_ENN_DS$Condicion), col = 1:2, cex = 0.8, pch = 1)
+
+plot(BD_ENN_DS$DBil, BD_ENN_DS$TBil, col=BD_ENN_DS$Condicion, 
+     xlab= "Bilirrubina directa", ylab= "Bilirrubina total",
+     pch = 2)
+legend('topright', legend = levels(BD_ENN_DS$Condicion), col = 1:2, cex = 0.8, pch = 2)
+
+plot(BD_ENN_DS$Alkphos, BD_ENN_DS$Sgpt, col=BD_ENN_DS$Condicion, 
+     xlab= "Fosfatasa alcalina", ylab= "Aminoácido alanina",
+     pch = 5)
+legend('topright', legend = levels(BD_ENN_DS$Condicion), col = 1:2, cex = 0.8, pch = 5)
+par(mfrow=c(1,1))
+```
+
+Visualmente también se vuelven a ver las observaciones con mayor claridad.
+
+# Algoritmos
+
+## Separación de base de datos - Entrenamiento y prueba
+
+Se crea un grupo de entrenamiento y otro de evaluación para cada una de las bases de datos.
+
+```{r}
+set.seed(123)
+random_ids <- order(runif(nrow(BD_DS)))
+
+#DOWNSAMPLE ALEATORIO
+BD_Ptrain1 <- BD_DS[random_ids[1:round(length(random_ids)*0.67)],]
+BD_Ptest1 <- BD_DS[-random_ids[1:round(length(random_ids)*0.67)],]
+
+
+#ENN UNDERSAMPLE
+set.seed(123)
+random_ids2 <- order(runif(nrow(BD_ENN)))
+
+BD_Ptrain2 <- BD_ENN[random_ids2[1:round(length(random_ids2)*0.67)],]
+BD_Ptest2 <- BD_ENN[-random_ids2[1:round(length(random_ids2)*0.67)],]
+
+
+#ENN + DOWNSAMPLE ALEATORIO
+BD_Ptrain3 <- BD_ENN_DS[random_ids[1:round(length(random_ids)*0.67)],]
+BD_Ptest3 <- BD_ENN_DS[-random_ids[1:round(length(random_ids)*0.67)],]
+```
+
+
+  El paquete "caret" posee herramientas para el preprocesado. 
+  
+  Se ejecutará cada algoritmo cambiando los valores de preprocesado, teniendo por un lado el modo de escalado y centralización, por otro el de transformar en rango contenido entre 0 y 1 las variables numéricas.
+
+  El método de preprocesado incluye "center" y "scale" en los cuales se sustraen las medias de los datos predictores y se divide por su desviación estándar. El método "range" transforma los valores numéricos aplicando el valor mínimo y máximo de cada varible.
+
+## Knn - entrenamiento
+
+Se aplica 10-fold crossvalidation, que hace el remuestreo de los datos para su correcto entrenamiento.
+
+```{r}
+ctrl <- trainControl(method="repeatedcv",number=10,repeats = 5)
+
+#KNN
+
+  #Downsample
+set.seed(1234567)
+knn_1 <- train(Condicion ~ ., data = BD_Ptrain1, method = "knn",
+                    trControl = ctrl,
+                    #preProcess = c("center","scale"),
+                    #preProcess = "range",
+                    tuneLength = 20)
+knn_1
+
+plot(knn_1)
+
+
+  # ENN
+set.seed(1234567)
+knn_2 <- train(Condicion ~ ., data = BD_Ptrain2, method = "knn",
+               trControl = ctrl,
+               #preProcess = c("center","scale"),
+               #preProcess = "range",
+               tuneLength = 20)
+knn_2
+
+plot(knn_2)
+
+
+  # ENN + downsample
+set.seed(1234567)
+knn_3 <- train(Condicion ~ ., data = BD_Ptrain3, method = "knn",
+               trControl = ctrl,
+               #preProcess = c("center","scale"),
+               #preProcess = "range",
+               tuneLength = 20)
+knn_3
+
+plot(knn_3)
+```
+
+Para cada modelo se van eligiendo los valores que presentan mayor precisión a la hora de entrenarlo.
+
+## Knn - evaluación
+
+Se dará la evaluación con valores reales desconocidos de los que se sabe su verdadera clasificación, las bases de datos de prueba.
+
+```{r}
+knn_1pred <- predict(knn_1, newdata = BD_Ptest1 )
+CM_knn1 <- confusionMatrix(knn_1pred, BD_Ptest1$Condicion)
+
+knn_2pred <- predict(knn_2, newdata = BD_Ptest2 )
+CM_knn2 <- confusionMatrix(knn_2pred, BD_Ptest2$Condicion)
+
+knn_3pred <- predict(knn_3, newdata = BD_Ptest3 )
+CM_knn3 <- confusionMatrix(knn_3pred, BD_Ptest3$Condicion)
+```
+
+Se almacenan los datos en las distintas matrices de confusión empleando la función `confusionMatrix` que tiene tanto la precisión real del modelo, como su sensibilidad y especificidad.
+
+Para almacenar los valores de interés para los modelos procesados, hay que eliminar el icono de la almohadilla `#`, de tal forma se aplicará el preprocesado correspondiente en los datos del algoritmo.
+
+```{r}
+#Sin preprocesar
+precNO <- c(CM_knn1$overall["Accuracy"], CM_knn2$overall["Accuracy"], CM_knn3$overall["Accuracy"])
+senNO <- c(CM_knn1$byClass["Sensitivity"], CM_knn2$byClass["Sensitivity"], CM_knn3$byClass["Sensitivity"])
+speNO <- c(CM_knn1$byClass["Specificity"], CM_knn2$byClass["Specificity"], CM_knn3$byClass["Specificity"])
+```
+
+### KNN - modelos preprocesados
+
+```{r}
+#KNN - preprocesado con center y scale
+
+  #Downsample
+set.seed(1234567)
+knn_1 <- train(Condicion ~ ., data = BD_Ptrain1, method = "knn",
+                    trControl = ctrl,
+                    preProcess = c("center","scale"),
+                    #preProcess = "range",
+                    tuneLength = 20)
+knn_1
+
+plot(knn_1)
+
+
+  # ENN
+set.seed(1234567)
+knn_2 <- train(Condicion ~ ., data = BD_Ptrain2, method = "knn",
+               trControl = ctrl,
+               preProcess = c("center","scale"),
+               #preProcess = "range",
+               tuneLength = 20)
+knn_2
+
+plot(knn_2)
+
+
+  # ENN + downsample
+set.seed(1234567)
+knn_3 <- train(Condicion ~ ., data = BD_Ptrain3, method = "knn",
+               trControl = ctrl,
+               preProcess = c("center","scale"),
+               #preProcess = "range",
+               tuneLength = 20)
+knn_3
+
+plot(knn_3)
+```
+
+
+```{r}
+knn_1pred <- predict(knn_1, newdata = BD_Ptest1 )
+CM_knn1 <- confusionMatrix(knn_1pred, BD_Ptest1$Condicion)
+
+knn_2pred <- predict(knn_2, newdata = BD_Ptest2 )
+CM_knn2 <- confusionMatrix(knn_2pred, BD_Ptest2$Condicion)
+
+knn_3pred <- predict(knn_3, newdata = BD_Ptest3 )
+CM_knn3 <- confusionMatrix(knn_3pred, BD_Ptest3$Condicion)
+
+#Preprocesado center + scale 
+precCS <- c(CM_knn1$overall["Accuracy"], CM_knn2$overall["Accuracy"], CM_knn3$overall["Accuracy"])
+senCS <- c(CM_knn1$byClass["Sensitivity"], CM_knn2$byClass["Sensitivity"], CM_knn3$byClass["Sensitivity"])
+speCS <- c(CM_knn1$byClass["Specificity"], CM_knn2$byClass["Specificity"], CM_knn3$byClass["Specificity"])
+```
+
+```{r}
+#KNN - procesado con range
+
+  #Downsample
+set.seed(1234567)
+knn_1 <- train(Condicion ~ ., data = BD_Ptrain1, method = "knn",
+                    trControl = ctrl,
+                    #preProcess = c("center","scale"),
+                    preProcess = "range",
+                    tuneLength = 20)
+knn_1
+
+plot(knn_1)
+
+
+  # ENN
+set.seed(1234567)
+knn_2 <- train(Condicion ~ ., data = BD_Ptrain2, method = "knn",
+               trControl = ctrl,
+               #preProcess = c("center","scale"),
+               preProcess = "range",
+               tuneLength = 20)
+knn_2
+
+plot(knn_2)
+
+
+  # ENN + downsample
+set.seed(1234567)
+knn_3 <- train(Condicion ~ ., data = BD_Ptrain3, method = "knn",
+               trControl = ctrl,
+               #preProcess = c("center","scale"),
+               preProcess = "range",
+               tuneLength = 20)
+knn_3
+
+plot(knn_3)
+```
+
+```{r}
+knn_1pred <- predict(knn_1, newdata = BD_Ptest1 )
+CM_knn1 <- confusionMatrix(knn_1pred, BD_Ptest1$Condicion)
+
+knn_2pred <- predict(knn_2, newdata = BD_Ptest2 )
+CM_knn2 <- confusionMatrix(knn_2pred, BD_Ptest2$Condicion)
+
+knn_3pred <- predict(knn_3, newdata = BD_Ptest3 )
+CM_knn3 <- confusionMatrix(knn_3pred, BD_Ptest3$Condicion)
+
+#Preprocesado range
+precR <- c(CM_knn1$overall["Accuracy"], CM_knn2$overall["Accuracy"], CM_knn3$overall["Accuracy"])
+senR <- c(CM_knn1$byClass["Sensitivity"], CM_knn2$byClass["Sensitivity"], CM_knn3$byClass["Sensitivity"])
+speR <- c(CM_knn1$byClass["Specificity"], CM_knn2$byClass["Specificity"], CM_knn3$byClass["Specificity"])
+```
+
+## KNN - Tabla de datos
+
+|Algoritmo|KNN - Precisión|||
+|---	|---	|---	|---|---|---|
+||Submuestreo|ENN|ENN y submuestreo|
+|Sin procesar|`r precNO[1]`|`r precNO[2]`|`r precNO[3]`|
+|Procesado (Center y scale)|`r precCS[1]`|`r precCS[2]`|`r precCS[3]`|
+|Procesado (Range)|`r precR[1]`|`r precR[2]`|`r precR[3]`|
+
+
+
+## Naive bayes - entrenamiento
+
+Los datos y el preprocesado es el mismo que con el algoritmo knn.
+
+```{r}
+#Naive Bayes - Sin preprocesar
+
+  # Downsample
+set.seed(1234567)
+NB1 <- train(Condicion ~ ., data = BD_Ptrain1, method = "naive_bayes",
+               trControl = ctrl,
+               #preProcess = c("center","scale"),
+               #preProcess = "range",
+               tuneLength = 20)
+
+
+
+  # ENN
+set.seed(1234567)
+NB2 <- train(Condicion ~ ., data = BD_Ptrain2, method = "naive_bayes",
+             trControl = ctrl,
+             #preProcess = c("center","scale"),
+             #preProcess = "range",
+             tuneLength = 20)
+
+
+
+  # ENN + downsample
+set.seed(1234567)
+NB3 <- train(Condicion ~ ., data = BD_Ptrain3, method = "naive_bayes",
+             trControl = ctrl,
+             #preProcess = c("center","scale"),
+             #preProcess = "range",
+             tuneLength = 20)
+
+```
+
+El algoritmo basado en Naive Bayes generado emplea el kernel dado que mejora la precisión del modelo y ajusta su límite a 1.
+
+
+## Naive bayes - evaluación
+
+Se dará la evaluación con valores reales desconocidos de los que se sabe su verdadera clasificación, las bases de datos de prueba.
+
+```{r}
+NB_1 <- predict(NB1, newdata = BD_Ptest1)
+CMNB1 <- confusionMatrix(NB_1, BD_Ptest1$Condicion)
+
+NB_2 <- predict(NB2, newdata = BD_Ptest2)
+CMNB2 <- confusionMatrix(NB_2, BD_Ptest2$Condicion)
+
+NB_3 <- predict(NB3, newdata = BD_Ptest3)
+CMNB3 <- confusionMatrix(NB_3, BD_Ptest3$Condicion)
+
+#Sin preprocesar
+precNO_NB <- c(CMNB1$overall["Accuracy"], CMNB2$overall["Accuracy"], CMNB3$overall["Accuracy"])
+senNO_NB <- c(CMNB1$byClass["Sensitivity"], CMNB2$byClass["Sensitivity"], CMNB3$byClass["Sensitivity"])
+speNO_NB <- c(CMNB1$byClass["Specificity"], CMNB2$byClass["Specificity"], CMNB3$byClass["Specificity"])
+```
+
+Se almacenan los datos en las distintas matrices de confusión empleando la función `confusionMatrix` que tiene tanto la precisión real del modelo, como su sensibilidad y especificidad.
+
+Para almacenar los valores de interés para los modelos procesados, hay que eliminar el icono de la almohadilla `#`, de tal forma se aplicará el preprocesado correspondiente en los datos del algoritmo.
+
+### Naive Bayes - modelos preprocesados
+
+```{r}
+#Naive Bayes - preprocesado con center y scale
+
+  # Downsample
+set.seed(1234567)
+NB1 <- train(Condicion ~ ., data = BD_Ptrain1, method = "naive_bayes",
+               trControl = ctrl,
+               preProcess = c("center","scale"),
+               #preProcess = "range",
+               tuneLength = 20)
+
+
+
+  # ENN
+set.seed(1234567)
+NB2 <- train(Condicion ~ ., data = BD_Ptrain2, method = "naive_bayes",
+             trControl = ctrl,
+             preProcess = c("center","scale"),
+             #preProcess = "range",
+             tuneLength = 20)
+
+
+
+  # ENN + downsample
+set.seed(1234567)
+NB3 <- train(Condicion ~ ., data = BD_Ptrain3, method = "naive_bayes",
+             trControl = ctrl,
+             preProcess = c("center","scale"),
+             #preProcess = "range",
+             tuneLength = 20)
+
+```
+
+```{r}
+NB_1 <- predict(NB1, newdata = BD_Ptest1)
+CMNB1 <- confusionMatrix(NB_1, BD_Ptest1$Condicion)
+
+NB_2 <- predict(NB2, newdata = BD_Ptest2)
+CMNB2 <- confusionMatrix(NB_2, BD_Ptest2$Condicion)
+
+NB_3 <- predict(NB3, newdata = BD_Ptest3)
+CMNB3 <- confusionMatrix(NB_3, BD_Ptest3$Condicion)
+
+#preprocesado center + scale 
+precCS_NB <- c(CMNB1$overall["Accuracy"], CMNB2$overall["Accuracy"], CMNB3$overall["Accuracy"])
+senCS_NB <- c(CMNB1$byClass["Sensitivity"], CMNB2$byClass["Sensitivity"], CMNB3$byClass["Sensitivity"])
+speCS_NB <- c(CMNB1$byClass["Specificity"], CMNB2$byClass["Specificity"], CMNB3$byClass["Specificity"])
+```
+
+```{r}
+#Naive Bayes - preprocesado con range
+
+  # Downsample
+set.seed(1234567)
+NB1 <- train(Condicion ~ ., data = BD_Ptrain1, method = "naive_bayes",
+               trControl = ctrl,
+               #preProcess = c("center","scale"),
+               preProcess = "range",
+               tuneLength = 20)
+
+
+
+  # ENN
+set.seed(1234567)
+NB2 <- train(Condicion ~ ., data = BD_Ptrain2, method = "naive_bayes",
+             trControl = ctrl,
+             #preProcess = c("center","scale"),
+             preProcess = "range",
+             tuneLength = 20)
+
+
+
+  # ENN + downsample
+set.seed(1234567)
+NB3 <- train(Condicion ~ ., data = BD_Ptrain3, method = "naive_bayes",
+             trControl = ctrl,
+             #preProcess = c("center","scale"),
+             preProcess = "range",
+             tuneLength = 20)
+
+```
+
+```{r}
+NB_1 <- predict(NB1, newdata = BD_Ptest1)
+CMNB1 <- confusionMatrix(NB_1, BD_Ptest1$Condicion)
+
+NB_2 <- predict(NB2, newdata = BD_Ptest2)
+CMNB2 <- confusionMatrix(NB_2, BD_Ptest2$Condicion)
+
+NB_3 <- predict(NB3, newdata = BD_Ptest3)
+CMNB3 <- confusionMatrix(NB_3, BD_Ptest3$Condicion)
+
+#preprocesado range
+precR_NB <- c(CMNB1$overall["Accuracy"], CMNB2$overall["Accuracy"], CMNB3$overall["Accuracy"])
+senR_NB <- c(CMNB1$byClass["Sensitivity"], CMNB2$byClass["Sensitivity"], CMNB3$byClass["Sensitivity"])
+speR_NB <- c(CMNB1$byClass["Specificity"], CMNB2$byClass["Specificity"], CMNB3$byClass["Specificity"])
+```
+
+
+## NAIVE BAYES - Tabla de datos
+
+|Algoritmo|NB - Precisión|||
+|---	|---	|---	|---|---|---|
+||Submuestreo|ENN|ENN y submuestreo|
+|Sin procesar|`r precNO_NB[1]`|`r precNO_NB[2]`|`r precNO_NB[3]`|
+|Procesado (Center y scale)|`r precCS_NB[1]`|`r precCS_NB[2]`|`r precCS_NB[3]`|
+|Procesado (Range)|`r precR_NB[1]`|`r precR_NB[2]`|`r precR_NB[3]`|
+
+
+## ANN
+
+Los datos y el preprocesado es el mismo que con el algoritmo knn.
+
+
+## ANN - entrenamiento
+
+Para entrenar el modelo uno debe seleccionar las variables de la base de datos que conformarán las predictoras y la variable respuesta. En este caso la variable respuesta muestra presencia de tener un problema hepático en pacientes (variable `Condicion`).
+
+```{r, eval = FALSE}
+#ANN - Sin preprocesar
+
+  # Downsample
+set.seed(1234567)
+ANN1 <- train(Condicion ~ ., data = BD_Ptrain1, method = "nnet",
+                trControl = ctrl,
+                #preProcess = c("center","scale"),
+                #preProcess = "range",
+                tuneGrid = expand.grid(size= c(1,3,5,7,9,10), decay = seq(from = 0.1, to = 0.5, by = 0.1))
+              )
+
+
+  # ENN 
+set.seed(1234567)
+ANN2 <- train(Condicion ~ ., data = BD_Ptrain2, method = "nnet",
+              trControl = ctrl,
+              #preProcess = c("center","scale"),
+              #preProcess = "range",
+              tuneGrid = expand.grid(size= c(1,3,5,7,9,10), decay = seq(from = 0.1, to = 0.5, by = 0.1))
+              )
+
+
+  # ENN + Downsample
+set.seed(1234567)
+ANN3 <- train(Condicion ~ ., data = BD_Ptrain3, method = "nnet",
+              trControl = ctrl,
+              #preProcess = c("center","scale"),
+              #preProcess = "range",
+              tuneGrid = expand.grid(size= c(1,3,5,7,9,10), decay = seq(from = 0.1, to = 0.5, by = 0.1))
+              )
+
+```
+
+## ANN - evaluación
+
+```{r}
+ANN_1 <- predict(ANN1, newdata = BD_Ptest1 )
+CMANN1 <- confusionMatrix(ANN_1, BD_Ptest1$Condicion)
+
+ANN_2 <- predict(ANN2, newdata = BD_Ptest2 )
+CMANN2 <- confusionMatrix(ANN_2, BD_Ptest2$Condicion)
+
+ANN_3 <- predict(ANN3, newdata = BD_Ptest3 )
+CMANN3 <- confusionMatrix(ANN_3, BD_Ptest3$Condicion)
+
+#Sin preprocesar
+precNO_ANN <- c(CMANN1$overall["Accuracy"], CMANN2$overall["Accuracy"], CMANN3$overall["Accuracy"])
+senNO_ANN <- c(CMANN1$byClass["Sensitivity"], CMANN2$byClass["Sensitivity"], CMANN3$byClass["Sensitivity"])
+speNO_ANN <- c(CMANN1$byClass["Specificity"], CMANN2$byClass["Specificity"], CMANN3$byClass["Specificity"])
+```
+
+Empleando la función de `confusionMatrix` se puede vislumbrar la comparación entre los valores reales y los predichos por la red neuronal. Se accede a los valores de interés y estos son almacenados en distintos vectores específicos.
+
+### ANN - Modelos preprocesados
+
+```{r, eval = FALSE}
+#ANN - preprocesado con center y scale
+
+  # Downsample
+set.seed(1234567)
+ANN1 <- train(Condicion ~ ., data = BD_Ptrain1, method = "nnet",
+                trControl = ctrl,
+                preProcess = c("center","scale"),
+                #preProcess = "range",
+                tuneGrid = expand.grid(size= c(1,3,5,7,9,10), decay = seq(from = 0.1, to = 0.5, by = 0.1))
+              )
+
+
+  # ENN 
+set.seed(1234567)
+ANN2 <- train(Condicion ~ ., data = BD_Ptrain2, method = "nnet",
+              trControl = ctrl,
+              preProcess = c("center","scale"),
+              #preProcess = "range",
+              tuneGrid = expand.grid(size= c(1,3,5,7,9,10), decay = seq(from = 0.1, to = 0.5, by = 0.1))
+              )
+
+
+  # ENN + Downsample
+set.seed(1234567)
+ANN3 <- train(Condicion ~ ., data = BD_Ptrain3, method = "nnet",
+              trControl = ctrl,
+              preProcess = c("center","scale"),
+              #preProcess = "range",
+              tuneGrid = expand.grid(size= c(1,3,5,7,9,10), decay = seq(from = 0.1, to = 0.5, by = 0.1))
+              )
+
+```
+
+```{r}
+ANN_1 <- predict(ANN1, newdata = BD_Ptest1 )
+CMANN1 <- confusionMatrix(ANN_1, BD_Ptest1$Condicion)
+
+ANN_2 <- predict(ANN2, newdata = BD_Ptest2 )
+CMANN2 <- confusionMatrix(ANN_2, BD_Ptest2$Condicion)
+
+ANN_3 <- predict(ANN3, newdata = BD_Ptest3 )
+CMANN3 <- confusionMatrix(ANN_3, BD_Ptest3$Condicion)
+
+#preprocesado con center y scale
+preCS_ANN <- c(CMANN1$overall["Accuracy"], CMANN2$overall["Accuracy"], CMANN3$overall["Accuracy"])
+senCS_ANN <- c(CMANN1$byClass["Sensitivity"], CMANN2$byClass["Sensitivity"], CMANN3$byClass["Sensitivity"])
+speCS_ANN <- c(CMANN1$byClass["Specificity"], CMANN2$byClass["Specificity"], CMANN3$byClass["Specificity"])
+```
+
+```{r, eval = FALSE}
+#ANN - preprocesado con range
+
+  # Downsample
+set.seed(1234567)
+ANN1 <- train(Condicion ~ ., data = BD_Ptrain1, method = "nnet",
+                trControl = ctrl,
+                #preProcess = c("center","scale"),
+                preProcess = "range",
+                tuneGrid = expand.grid(size= c(1,3,5,7,9,10), decay = seq(from = 0.1, to = 0.5, by = 0.1))
+              )
+
+
+  # ENN 
+set.seed(1234567)
+ANN2 <- train(Condicion ~ ., data = BD_Ptrain2, method = "nnet",
+              trControl = ctrl,
+              #preProcess = c("center","scale"),
+              preProcess = "range",
+              tuneGrid = expand.grid(size= c(1,3,5,7,9,10), decay = seq(from = 0.1, to = 0.5, by = 0.1))
+              )
+
+
+  # ENN + Downsample
+set.seed(1234567)
+ANN3 <- train(Condicion ~ ., data = BD_Ptrain3, method = "nnet",
+              trControl = ctrl,
+              #preProcess = c("center","scale"),
+              preProcess = "range",
+              tuneGrid = expand.grid(size= c(1,3,5,7,9,10), decay = seq(from = 0.1, to = 0.5, by = 0.1))
+              )
+
+```
+
+```{r}
+ANN_1 <- predict(ANN1, newdata = BD_Ptest1 )
+CMANN1 <- confusionMatrix(ANN_1, BD_Ptest1$Condicion)
+
+ANN_2 <- predict(ANN2, newdata = BD_Ptest2 )
+CMANN2 <- confusionMatrix(ANN_2, BD_Ptest2$Condicion)
+
+ANN_3 <- predict(ANN3, newdata = BD_Ptest3 )
+CMANN3 <- confusionMatrix(ANN_3, BD_Ptest3$Condicion)
+
+#Preprocesado con range
+preR_ANN <- c(CMANN1$overall["Accuracy"], CMANN2$overall["Accuracy"], CMANN3$overall["Accuracy"])
+senR_ANN <- c(CMANN1$byClass["Sensitivity"], CMANN2$byClass["Sensitivity"], CMANN3$byClass["Sensitivity"])
+speR_ANN <- c(CMANN1$byClass["Specificity"], CMANN2$byClass["Specificity"], CMANN3$byClass["Specificity"])
+```
+
+## ANN - Tabla de datos
+
+|Algoritmo|ANN - Precisión|||
+|---	|---	|---	|---|---|---|
+||Submuestreo|ENN|ENN y submuestreo|
+|Sin procesar|`r precNO_ANN[1]`|`r precNO_ANN[2]`|`r precNO_ANN[3]`|
+|Procesado (Center y scale)|`r preCS_ANN[1]`|`r preCS_ANN[2]`|`r preCS_ANN[3]`|
+|Procesado (Range)|`r preR_ANN[1]`|`r preR_ANN[2]`|`r preR_ANN[3]`|
+
+
+## SVM
+
+Los datos y el preprocesado es el mismo que con el algoritmo knn.
+
+## SVM - entrenamiento
+
+```{r}
+#SVM - Sin preprocesar
+
+# Downsample
+set.seed(1234567)
+SVM1 <- train(Condicion ~ ., data = BD_Ptrain1, method = "svmLinear",
+              trControl = ctrl,
+              #preProcess = c("center","scale"),
+              #preProcess = "range",
+              tuneGrid = expand.grid(C= c(2^(2:9))))
+
+
+# ENN
+set.seed(1234567)
+SVM2 <- train(Condicion ~ ., data = BD_Ptrain2, method = "svmLinear",
+              trControl = ctrl,
+              #preProcess = c("center","scale"),
+              #preProcess = "range",
+              tuneGrid = expand.grid(C= c(2^(2:9))))
+
+
+# ENN + downsample
+set.seed(1234567)
+SVM3 <- train(Condicion ~ ., data = BD_Ptrain3, method = "svmLinear",
+              trControl = ctrl,
+              #preProcess = c("center","scale"),
+              #preProcess = "range",
+              tuneGrid = expand.grid(C= c(2^(2:9))))
+
+
+```
+
+## SVM - evaluación
+
+```{r}
+SVM_1 <- predict(SVM1, newdata = BD_Ptest1)
+CMSVM1 <- confusionMatrix(SVM_1, BD_Ptest1$Condicion)
+
+SVM_2 <- predict(SVM2, newdata = BD_Ptest2)
+CMSVM2 <- confusionMatrix(SVM_2, BD_Ptest2$Condicion)
+
+SVM_3 <- predict(SVM3, newdata = BD_Ptest3)
+CMSVM3 <- confusionMatrix(SVM_3, BD_Ptest3$Condicion)
+
+#Sin preprocesar
+precNO_SVML <- c(CMSVM1$overall["Accuracy"], CMSVM2$overall["Accuracy"], CMSVM3$overall["Accuracy"])
+senNO_SVML <- c(CMSVM1$byClass["Sensitivity"], CMSVM2$byClass["Sensitivity"], CMSVM3$byClass["Sensitivity"])
+speNO_SVML <- c(CMSVM1$byClass["Specificity"], CMSVM2$byClass["Specificity"], CMSVM3$byClass["Specificity"])
+```
+
+### SVM - Modelos preprocesados
+
+```{r}
+# SVM - Preprocesado con center y scale 
+
+# Downsample
+set.seed(1234567)
+SVM1 <- train(Condicion ~ ., data = BD_Ptrain1, method = "svmLinear",
+              trControl = ctrl,
+              preProcess = c("center","scale"),
+              #preProcess = "range",
+              tuneGrid = expand.grid(C= c(2^(2:9))))
+
+
+# ENN
+set.seed(1234567)
+SVM2 <- train(Condicion ~ ., data = BD_Ptrain2, method = "svmLinear",
+              trControl = ctrl,
+              preProcess = c("center","scale"),
+              #preProcess = "range",
+              tuneGrid = expand.grid(C= c(2^(2:9))))
+
+
+# ENN + downsample
+set.seed(1234567)
+SVM3 <- train(Condicion ~ ., data = BD_Ptrain3, method = "svmLinear",
+              trControl = ctrl,
+              preProcess = c("center","scale"),
+              #preProcess = "range",
+              tuneGrid = expand.grid(C= c(2^(2:9))))
+```
+
+```{r}
+SVM_1 <- predict(SVM1, newdata = BD_Ptest1)
+CMSVM1 <- confusionMatrix(SVM_1, BD_Ptest1$Condicion)
+
+SVM_2 <- predict(SVM2, newdata = BD_Ptest2)
+CMSVM2 <- confusionMatrix(SVM_2, BD_Ptest2$Condicion)
+
+SVM_3 <- predict(SVM3, newdata = BD_Ptest3)
+CMSVM3 <- confusionMatrix(SVM_3, BD_Ptest3$Condicion)
+
+#preprocesado center + scale 
+precCS_SVML <- c(CMSVM1$overall["Accuracy"], CMSVM2$overall["Accuracy"], CMSVM3$overall["Accuracy"])
+senCS_SVML <- c(CMSVM1$byClass["Sensitivity"], CMSVM2$byClass["Sensitivity"], CMSVM3$byClass["Sensitivity"])
+speCS_SVML <- c(CMSVM1$byClass["Specificity"], CMSVM2$byClass["Specificity"], CMSVM3$byClass["Specificity"])
+```
+
+```{r}
+#SVM - Preprocesado con range
+
+# Downsample
+set.seed(1234567)
+SVM1 <- train(Condicion ~ ., data = BD_Ptrain1, method = "svmLinear",
+              trControl = ctrl,
+              #preProcess = c("center","scale"),
+              preProcess = "range",
+              tuneGrid = expand.grid(C= c(2^(2:9))))
+
+
+# ENN
+set.seed(1234567)
+SVM2 <- train(Condicion ~ ., data = BD_Ptrain2, method = "svmLinear",
+              trControl = ctrl,
+              #preProcess = c("center","scale"),
+              preProcess = "range",
+              tuneGrid = expand.grid(C= c(2^(2:9))))
+
+
+# ENN + downsample
+set.seed(1234567)
+SVM3 <- train(Condicion ~ ., data = BD_Ptrain3, method = "svmLinear",
+              trControl = ctrl,
+              #preProcess = c("center","scale"),
+              preProcess = "range",
+              tuneGrid = expand.grid(C= c(2^(2:9))))
+```
+
+El modelo generado del "support vector machine" emplea un kernel lineal, que implica que los vectores utilizados para la clasificación son líneas rectas.
+
+
+```{r}
+SVM_1 <- predict(SVM1, newdata = BD_Ptest1)
+CMSVM1 <- confusionMatrix(SVM_1, BD_Ptest1$Condicion)
+
+SVM_2 <- predict(SVM2, newdata = BD_Ptest2)
+CMSVM2 <- confusionMatrix(SVM_2, BD_Ptest2$Condicion)
+
+SVM_3 <- predict(SVM3, newdata = BD_Ptest3)
+CMSVM3 <- confusionMatrix(SVM_3, BD_Ptest3$Condicion)
+
+#preprocesado range
+precR_SVML <- c(CMSVM1$overall["Accuracy"], CMSVM2$overall["Accuracy"], CMSVM3$overall["Accuracy"])
+senR_SVML <- c(CMSVM1$byClass["Sensitivity"], CMSVM2$byClass["Sensitivity"], CMSVM3$byClass["Sensitivity"])
+speR_SVML <- c(CMSVM1$byClass["Specificity"], CMSVM2$byClass["Specificity"], CMSVM3$byClass["Specificity"])
+```
+
+## SVM - Tabla de datos
+
+|Algoritmo|SVM - Precisión|||
+|---	|---	|---	|---|---|---|
+||Submuestreo|ENN|ENN y submuestreo|
+|Sin procesar|`r precNO_SVML[1]`|`r precNO_SVML[2]`|`r precNO_SVML[3]`|
+|Procesado (Center y scale)|`r precCS_SVML[1]`|`r precCS_SVML[2]`|`r precCS_SVML[3]`|
+|Procesado (Range)|`r precR_SVML[1]`|`r precR_SVML[2]`|`r precR_SVML[3]`|
+
+
+## Random Forest - entrenamiento
+
+```{r}
+#RANDOM FOREST - Sin preprocesar
+  #Dowsample
+set.seed(1234567)
+RF1 <- train(Condicion ~., data=BD_Ptrain1, method='rf', 
+               trControl = ctrl,
+               #preProcess = c("center","scale"),
+               #preProcess = "range",
+               metric='Accuracy', 
+               tuneLength = 9)
+
+
+  #ENN
+set.seed(1234567)
+RF2 <- train(Condicion ~., data=BD_Ptrain2, method='rf', 
+             trControl = ctrl,
+             #preProcess = c("center","scale"),
+             #preProcess = "range",
+             metric='Accuracy', 
+             tuneLength = 9)
+
+
+  #ENN + Downsample
+set.seed(1234567)
+RF3 <- train(Condicion ~., data=BD_Ptrain3, method='rf', 
+             trControl = ctrl,
+             #preProcess = c("center","scale"),
+             #preProcess = "range",
+             metric='Accuracy', 
+             tuneLength = 9)
+
+```
+
+```{r}
+RF_1 <- predict(RF1, newdata = BD_Ptest1 )
+CM_RF1 <- confusionMatrix(RF_1, BD_Ptest1$Condicion)
+
+RF_2 <- predict(RF2, newdata = BD_Ptest2 )
+CM_RF2 <- confusionMatrix(RF_2, BD_Ptest2$Condicion)
+
+RF_3 <- predict(RF3, newdata = BD_Ptest3 )
+CM_RF3 <- confusionMatrix(RF_3, BD_Ptest3$Condicion)
+
+
+#Sin preprocesar
+precNO_rf <- c(CM_RF1$overall["Accuracy"], CM_RF2$overall["Accuracy"], CM_RF3$overall["Accuracy"])
+senNO_rf <- c(CM_RF1$byClass["Sensitivity"], CM_RF2$byClass["Sensitivity"], CM_RF3$byClass["Sensitivity"])
+speNO_rf <- c(CM_RF1$byClass["Specificity"], CM_RF2$byClass["Specificity"], CM_RF3$byClass["Specificity"])
+
+#Variables importantes
+VIMPRF1NO <- varImp(RF1)
+VIMPRF2NO <- varImp(RF2)
+VIMPRF3NO <- varImp(RF3)
+```
+
+### Random Forest - Modelos preprocesados
+
+```{r}
+#RANDOM FOREST - Preprocesado con center y scale
+  #Dowsample
+set.seed(1234567)
+RF1 <- train(Condicion ~., data=BD_Ptrain1, method='rf', 
+               trControl = ctrl,
+               preProcess = c("center","scale"),
+               #preProcess = "range",
+               metric='Accuracy', 
+               tuneLength = 9)
+
+
+
+  #ENN
+set.seed(1234567)
+RF2 <- train(Condicion ~., data=BD_Ptrain2, method='rf', 
+             trControl = ctrl,
+             preProcess = c("center","scale"),
+             #preProcess = "range",
+             metric='Accuracy', 
+             tuneLength = 9)
+
+
+  #ENN + Downsample
+set.seed(1234567)
+RF3 <- train(Condicion ~., data=BD_Ptrain3, method='rf', 
+             trControl = ctrl,
+             preProcess = c("center","scale"),
+             #preProcess = "range",
+             metric='Accuracy', 
+             tuneLength = 9)
+
+```
+
+```{r}
+RF_1 <- predict(RF1, newdata = BD_Ptest1 )
+CM_RF1 <- confusionMatrix(RF_1, BD_Ptest1$Condicion)
+
+RF_2 <- predict(RF2, newdata = BD_Ptest2 )
+CM_RF2 <- confusionMatrix(RF_2, BD_Ptest2$Condicion)
+
+RF_3 <- predict(RF3, newdata = BD_Ptest3 )
+CM_RF3 <- confusionMatrix(RF_3, BD_Ptest3$Condicion)
+
+#Preprocesado center y scale
+precCS_rf <- c(CM_RF1$overall["Accuracy"], CM_RF2$overall["Accuracy"], CM_RF3$overall["Accuracy"])
+senCS_rf <- c(CM_RF1$byClass["Sensitivity"], CM_RF2$byClass["Sensitivity"], CM_RF3$byClass["Sensitivity"])
+speCS_rf <- c(CM_RF1$byClass["Specificity"], CM_RF2$byClass["Specificity"], CM_RF3$byClass["Specificity"])
+
+#Variables importantes
+VIMPRF1CS <- varImp(RF1)
+VIMPRF2CS <- varImp(RF2)
+VIMPRF3CS <- varImp(RF3)
+```
+
+```{r}
+#RANDOM FOREST - Preprocesado con range
+  #Dowsample
+set.seed(1234567)
+RF1 <- train(Condicion ~., data=BD_Ptrain1, method='rf', 
+               trControl = ctrl,
+               #preProcess = c("center","scale"),
+               preProcess = "range",
+               metric='Accuracy', 
+               tuneLength = 9)
+
+
+
+  #ENN
+set.seed(1234567)
+RF2 <- train(Condicion ~., data=BD_Ptrain2, method='rf', 
+             trControl = ctrl,
+             #preProcess = c("center","scale"),
+             preProcess = "range",
+             metric='Accuracy', 
+             tuneLength = 9)
+
+
+  #ENN + Downsample
+set.seed(1234567)
+RF3 <- train(Condicion ~., data=BD_Ptrain3, method='rf', 
+             trControl = ctrl,
+             #preProcess = c("center","scale"),
+             preProcess = "range",
+             metric='Accuracy', 
+             tuneLength = 9)
+
+```
+
+```{r}
+RF_1 <- predict(RF1, newdata = BD_Ptest1 )
+CM_RF1 <- confusionMatrix(RF_1, BD_Ptest1$Condicion)
+
+RF_2 <- predict(RF2, newdata = BD_Ptest2 )
+CM_RF2 <- confusionMatrix(RF_2, BD_Ptest2$Condicion)
+
+RF_3 <- predict(RF3, newdata = BD_Ptest3 )
+CM_RF3 <- confusionMatrix(RF_3, BD_Ptest3$Condicion)
+
+#Preprocesado range
+precR_rf <- c(CM_RF1$overall["Accuracy"], CM_RF2$overall["Accuracy"], CM_RF3$overall["Accuracy"])
+senR_rf <- c(CM_RF1$byClass["Sensitivity"], CM_RF2$byClass["Sensitivity"], CM_RF3$byClass["Sensitivity"])
+speR_rf <- c(CM_RF1$byClass["Specificity"], CM_RF2$byClass["Specificity"], CM_RF3$byClass["Specificity"])
+
+#Variables importantes
+VIMPRF1R <- varImp(RF1)
+VIMPRF2R <- varImp(RF2)
+VIMPRF3R <- varImp(RF3)
+```
+
+## RF - Tabla de datos
+
+|Algoritmo|SVM - Precisión|||
+|---	|---	|---	|---|---|---|
+||Submuestreo|ENN|ENN y submuestreo|
+|Sin procesar|`r precNO_rf[1]`|`r precNO_rf[2]`|`r precNO_rf[3]`|
+|Procesado (Center y scale)|`r precCS_rf[1]`|`r precCS_rf[2]`|`r precCS_rf[3]`|
+|Procesado (Range)|`r precR_rf[1]`|`r precR_rf[2]`|`r precR_rf[3]`|
+
+
+# Modelos elegidos:
+
+SVM - ENN + Submuestreo y Preprocesado range
+
+Naive Bayes - ENN y Preprocesado range
+
+ANN - ENN y Preprocesado center + scale
+
+
+```{r, eval = FALSE}
+# SVM - ENN + Submuestreo y Preprocesado range
+#set.seed(1234567)
+#SVM3 <- train(Condicion ~ ., data = BD_Ptrain3, method = "svmLinear",
+#              trControl = ctrl,
+#              #preProcess = c("center","scale"),
+#              preProcess = "range",
+#              tuneGrid = expand.grid(C= c(2)))
+#SVM3
+
+#Coste 2
+
+#SVM_PRED <- predict(SVM3, newdata = BD_Ptest3 )
+#CM_SVMDEF <- confusionMatrix(SVM_PRED, BD_Ptest3$Condicion)
+
+# Naive Bayes - ENN y Preprocesado range
+#set.seed(1234567)
+#NB2 <- train(Condicion ~ ., data = BD_Ptrain2, method = "naive_bayes",
+#             trControl = ctrl,
+#             #preProcess = c("center","scale"),
+#             preProcess = "range",
+#             tuneLength = 20)
+#NB2
+
+#Laplace 0, uso de kernel = TRUE y ajuste constante a 1.
+
+#NB_PRED <- predict(NB2, newdata = BD_Ptest2 )
+#CM_NBDEF <- confusionMatrix(NB_PRED, BD_Ptest2$Condicion)
+
+
+# ANN - ENN y center + scale
+#set.seed(1234567)
+#ANN3 <- train(Condicion ~ ., data = BD_Ptrain2, method = "nnet",
+#              trControl = ctrl,
+#              preProcess = c("center","scale"),
+#              #preProcess = "range",
+#              tuneGrid = expand.grid(size= 7, decay = 0.1)
+#              )
+#ANN3
+
+#nodos 7 y decaimiento 0,1
+
+#ANN_PRED <- predict(ANN3, newdata = BD_Ptest2 )
+#CM_ANNDEF <- confusionMatrix(ANN_PRED, BD_Ptest2$Condicion)
+```
+
+  *TABLA base de datos*
+  
+|Variable|Máximo|Mínimo|Media|Desviación estándar|Factores |
+|---|---|---|---|---|---|
+|Edad|`r max(BD.0$Edad)`|`r min(BD.0$Edad)`|`r mean(BD.0$Edad)`|`r sd(BD.0$Edad)`||
+|Género|-|-|-|-|Female: 138, Male: 428|
+|TBil|`r max(BD.0$TBil)`|`r min(BD.0$TBil)`|`r mean(BD.0$TBil)`|`r sd(BD.0$TBil)`||
+|DBil|`r max(BD.0$DBil)`|`r min(BD.0$DBil)`|`r mean(BD.0$DBil)`|`r sd(BD.0$DBil)`||
+|Alkphos|`r max(BD.0$Alkphos)`|`r min(BD.0$Alkphos)`|`r mean(BD.0$Alkphos)`|`r sd(BD.0$Alkphos)`||
+|Spgt|`r max(BD.0$Sgpt)`|`r min(BD.0$Sgpt)`|`r mean(BD.0$Sgpt)`|`r sd(BD.0$Sgpt)`||
+|Sgot|`r max(BD.0$Sgot)`|`r min(BD.0$Sgot)`|`r mean(BD.0$Sgot)`|`r sd(BD.0$Sgot)`||
+|TP| `r max(BD.0$TP)`| `r min(BD.0$TP)`| `r mean(BD.0$TP)`|`r sd(BD.0$TP)`| |
+|Albúmina| `r max(BD.0$Albúmina)`|`r min(BD.0$Albúmina)`|`r mean(BD.0$Albúmina)`|`r sd(BD.0$Albúmina)`||
+|Ratio|`r max(BD.0$Ratio)`|`r min(BD.0$Ratio)`|`r mean(BD.0$Ratio)`|`r sd(BD.0$Ratio)`||
+
+
+
