@@ -3,7 +3,7 @@ Este repositorio presenta tanto los archivos empleados para la creación de los 
 
 
 En lo que respecta al entrenamiento y selección del modelo de interés se utiliza el archivo:
-  "Indian Liver Patient Dataset (ILPD).csv".
+  "basedatos.csv".
   
 Los archivos correspondientes a la selección del modelo son: 
   "TFM - base de datosMD.Rmd" y "TFM BD - DEF.RData".
