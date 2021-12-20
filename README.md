@@ -12,3 +12,6 @@ El archivo de lectura de la generación/selección es:
 
 "TFM---base-de-datosMD.docx"
 
+Los archivos correspondientes al funcionamiento de la página web que aplica el modelo elegido son:
+
+"paginadef.R" y "modelo.rds"
