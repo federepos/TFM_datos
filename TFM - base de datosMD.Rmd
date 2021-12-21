@@ -3,12 +3,12 @@ title: "TFM - base de datosMD"
 author: "Federico José Saviotti Brunacci"
 date: "7/10/2021"
 output:
-  html_document: default
   word_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE , comment = NULL, cache = TRUE, warning = FALSE)
+knitr::opts_chunk$set(echo = TRUE , comment = NULL, warning = FALSE)
 ```
 
 # Librerías 
@@ -116,6 +116,39 @@ boxplot(BD.0[-c(2,11)], las=2, col="lightsalmon2", main="Variables numéricas")
 ```
 
   - El rango de las variables numéricas difiere enormemente en función del parámetro observado. También se observa que es debido a valores atípicos (outliers), por tanto, se puede aplicar normalización sobre los datos. 
+
+### Visualizar variables normalizadas.
+
+```{r}
+#normalización minmax
+
+min_max_norm <- function (x) {
+    (x - min(x)) / (max(x) - min(x))
+}
+
+#normalización puntuación Z
+escalaZ <- function (x){
+  media <- mean(x)
+  desvst <- sd(x)
+  valor_esc <- (x-media)/desvst
+  return(valor_esc)
+}
+
+#Base de datos Min-Max
+BD.MM <- data.frame(lapply(BD.0[,-c(2,11)], min_max_norm))
+BD.MM <- cbind(BD.MM, BD.0$Género, BD.0$Condicion)
+
+#Base de datos puntuación Z
+BD.z <- data.frame(lapply(BD.0[,-c(2,11)], escalaZ))
+BD.z <- cbind(BD.z, BD.0$Género, BD.0$Condicion)
+
+
+boxplot(BD.MM[,-c(10,11)], las=2, col="lightsalmon2", main="Variables numéricas Min-max")
+boxplot(BD.z[,-c(10,11)], las=2, col="lightsalmon2", main="Variables numéricas puntuación Z")
+```
+
+
+
 
 ### Visualización de la variable respuesta 
 
@@ -665,7 +698,7 @@ Los datos y el preprocesado es el mismo que con el algoritmo knn.
 
 Para entrenar el modelo uno debe seleccionar las variables de la base de datos que conformarán las predictoras y la variable respuesta. En este caso la variable respuesta muestra presencia de tener un problema hepático en pacientes (variable `Condicion`).
 
-```{r, eval = FALSE}
+```{r, results='hide'}
 #ANN - Sin preprocesar
 
   # Downsample
@@ -721,7 +754,7 @@ Empleando la función de `confusionMatrix` se puede vislumbrar la comparación e
 
 ### ANN - Modelos preprocesados
 
-```{r, eval = FALSE}
+```{r, results='hide'}
 #ANN - preprocesado con center y scale
 
   # Downsample
@@ -771,7 +804,7 @@ senCS_ANN <- c(CMANN1$byClass["Sensitivity"], CMANN2$byClass["Sensitivity"], CMA
 speCS_ANN <- c(CMANN1$byClass["Specificity"], CMANN2$byClass["Specificity"], CMANN3$byClass["Specificity"])
 ```
 
-```{r, eval = FALSE}
+```{r, results='hide'}
 #ANN - preprocesado con range
 
   # Downsample
@@ -1165,7 +1198,7 @@ VIMPRF3R <- varImp(RF3)
 
 ## RF - Tabla de datos
 
-|Algoritmo|SVM - Precisión|||
+|Algoritmo|RF - Precisión|||
 |---	|---	|---	|---|---|---|
 ||Submuestreo|ENN|ENN y submuestreo|
 |Sin procesar|`r precNO_rf[1]`|`r precNO_rf[2]`|`r precNO_rf[3]`|
@@ -1182,51 +1215,106 @@ Naive Bayes - ENN y Preprocesado range
 ANN - ENN y Preprocesado center + scale
 
 
-```{r, eval = FALSE}
+```{r, results='hide'}
 # SVM - ENN + Submuestreo y Preprocesado range
-#set.seed(1234567)
-#SVM3 <- train(Condicion ~ ., data = BD_Ptrain3, method = "svmLinear",
-#              trControl = ctrl,
-#              #preProcess = c("center","scale"),
-#              preProcess = "range",
-#              tuneGrid = expand.grid(C= c(2)))
-#SVM3
+set.seed(1234567)
+SVM_D <- train(Condicion ~ ., data = BD_Ptrain3, method = "svmLinear",
+              trControl = ctrl,
+              #preProcess = c("center","scale"),
+              preProcess = "range",
+              tuneGrid = expand.grid(C= 4))
+# Coste 4
 
-#Coste 2
+#Random Forest - ENN + DS y Preprocesado center + scale
+set.seed(1234567)
+RF_D <- train(Condicion ~., data=BD_Ptrain3, method='rf', 
+             trControl = ctrl,
+             preProcess = c("center","scale"),
+             #preProcess = "range",
+             metric='Accuracy',
+             tuneGrid= expand.grid(mtry= 4)
+             )
 
-#SVM_PRED <- predict(SVM3, newdata = BD_Ptest3 )
-#CM_SVMDEF <- confusionMatrix(SVM_PRED, BD_Ptest3$Condicion)
-
-# Naive Bayes - ENN y Preprocesado range
-#set.seed(1234567)
-#NB2 <- train(Condicion ~ ., data = BD_Ptrain2, method = "naive_bayes",
-#             trControl = ctrl,
-#             #preProcess = c("center","scale"),
-#             preProcess = "range",
-#             tuneLength = 20)
-#NB2
-
-#Laplace 0, uso de kernel = TRUE y ajuste constante a 1.
-
-#NB_PRED <- predict(NB2, newdata = BD_Ptest2 )
-#CM_NBDEF <- confusionMatrix(NB_PRED, BD_Ptest2$Condicion)
+#mtry 4
 
 
 # ANN - ENN y center + scale
-#set.seed(1234567)
-#ANN3 <- train(Condicion ~ ., data = BD_Ptrain2, method = "nnet",
-#              trControl = ctrl,
-#              preProcess = c("center","scale"),
-#              #preProcess = "range",
-#              tuneGrid = expand.grid(size= 7, decay = 0.1)
-#              )
-#ANN3
+set.seed(1234567)
+ANN_D <- train(Condicion ~ ., data = BD_Ptrain2, method = "nnet",
+              trControl = ctrl,
+              preProcess = c("center","scale"),
+              #preProcess = "range",
+              tuneGrid = expand.grid(size= 9, decay = 0.2)
+              )
+#size 9 y decay 0.2
 
-#nodos 7 y decaimiento 0,1
-
-#ANN_PRED <- predict(ANN3, newdata = BD_Ptest2 )
-#CM_ANNDEF <- confusionMatrix(ANN_PRED, BD_Ptest2$Condicion)
 ```
+
+```{r}
+SVM_PRED_D <- predict(SVM_D, newdata = BD_Ptest3 )
+CM_SVMDEF <- confusionMatrix(SVM_PRED_D, BD_Ptest3$Condicion)
+
+RF_PRED_D <- predict(RF_D, newdata = BD_Ptest3 )
+CM_RFDEF <- confusionMatrix(RF_PRED_D, BD_Ptest3$Condicion)
+
+ANN_PRED_D <- predict(ANN_D, newdata = BD_Ptest2 )
+CM_ANNDEF <- confusionMatrix(ANN_PRED_D, BD_Ptest2$Condicion)
+```
+
+```{r}
+# Comparación de modelos con base de datos reducida
+
+#Variables de importancia para los modelos definitivos de SVM y ANN:
+plot(VIMPRF3R)
+plot(VIMPRF2CS)
+```
+
+```{r, results='hide'}
+#Bases de datos reducidas:
+BD_Ptrain3red <- BD_Ptrain3[,c(1,3,5,6,7,11)]
+BD_Ptest3red <- BD_Ptest3[,c(1,3,5,6,7,11)]
+
+
+BD_Ptrain2red <- BD_Ptrain2[,c(1,3,5,6,7,11)]
+BD_Ptest2red <- BD_Ptest2[,c(1,3,5,6,7,11)]
+
+
+# SVM - ENN + Submuestreo y Preprocesado range
+
+set.seed(1234567)
+SVM_red <- train(Condicion ~ ., data = BD_Ptrain3red, method = "svmLinear",
+              trControl = ctrl,
+              #preProcess = c("center","scale"),
+              preProcess = "range",
+              tuneGrid = expand.grid(C= 4)
+              )
+
+#expand.grid(C= c(2^(2:9)))
+#expand.grid(C= 4)
+
+
+# ANN - ENN y center + scale
+set.seed(1234567)
+ANN_red <- train(Condicion ~ ., data = BD_Ptrain2red, method = "nnet",
+              trControl = ctrl,
+              preProcess = c("center","scale"),
+              #preProcess = "range",
+              tuneGrid = expand.grid(size= 9, decay = 0.2)
+              )
+
+#expand.grid(size= c(1,3,5,7,9,10), decay = seq(from = 0.1, to = 0.5, by = 0.1))
+#expand.grid(size= 9, decay = 0.2)
+              
+```
+
+```{r}
+SVM_PREDred <- predict(SVM_red, newdata = BD_Ptest3red )
+CM_SVMred <- confusionMatrix(SVM_PREDred, BD_Ptest3red$Condicion)
+
+ANN_PREDred <- predict(ANN_red, newdata = BD_Ptest2red )
+CM_ANNred <- confusionMatrix(ANN_PREDred, BD_Ptest2red$Condicion)
+```
+
 
   *TABLA base de datos*
   
@@ -1244,4 +1332,24 @@ ANN - ENN y Preprocesado center + scale
 |Ratio|`r max(BD.0$Ratio)`|`r min(BD.0$Ratio)`|`r mean(BD.0$Ratio)`|`r sd(BD.0$Ratio)`||
 
 
+  *Comparaciones algoritmos finales*
 
+|Algoritmo|SVM|RF|ANN|
+|---	|---	|---	|---|
+|Precisión|`r round(CM_SVMDEF$overall["Accuracy"],3)`|`r round(CM_RFDEF$overall["Accuracy"],3)`|`r round(CM_ANNDEF$overall["Accuracy"],3)`|
+|Sensibilidad|`r round(CM_SVMDEF$byClass["Sensitivity"],3)`|`r round(CM_RFDEF$byClass["Sensitivity"],3)`|`r round(CM_ANNDEF$byClass["Sensitivity"],3)`|
+|Especificidad|`r round(CM_SVMDEF$byClass["Specificity"],3)`|`r round(CM_RFDEF$byClass["Specificity"],3)`|`r round(CM_ANNDEF$byClass["Specificity"],3)`|
+|Falsos negativos|`r CM_SVMDEF$table[2,1]`|`r CM_RFDEF$table[2,1]`|`r CM_ANNDEF$table[2,1]`|
+|Falsos positivos|`r CM_SVMDEF$table[1,2]`|`r CM_RFDEF$table[1,2]`|`r CM_ANNDEF$table[1,2]`|
+
+
+  *Comparación de modelos con base de datos reducida*
+
+|Algoritmos|ANN|ANN|SVM||SVM|
+|---	|---	|---	|---	|---	|
+|Base de datos|Completa|Incompleta|Completa|Incompleta|
+|Precisión|`r round(CM_ANNDEF$overall["Accuracy"],3)`|`r round(CM_ANNred$overall["Accuracy"],3)`|`r round(CM_SVMDEF$overall["Accuracy"],3)`|`r round(CM_SVMred$overall["Accuracy"],3)`|
+|Sensibilidad|`r round(CM_ANNDEF$byClass["Sensitivity"],3)`|`r round(CM_ANNred$byClass["Sensitivity"],3)`|`r round(CM_SVMDEF$byClass["Sensitivity"],3)`|`r round(CM_SVMred$byClass["Sensitivity"],3)`|
+|Especificidad|`r round(CM_ANNDEF$byClass["Specificity"],3)`|`r round(CM_ANNred$byClass["Specificity"],3)`|`r round(CM_SVMDEF$byClass["Specificity"],3)`|`r round(CM_SVMred$byClass["Specificity"],3)`|
+|Falsos negativos|`r CM_ANNDEF$table[2,1]`|`r CM_ANNred$table[2,1]`|`r CM_SVMDEF$table[2,1]`|`r CM_SVMred$table[2,1]`|
+|Falsos positivos|`r CM_ANNDEF$table[1,2]`|`r CM_ANNred$table[1,2]`|`r CM_SVMDEF$table[1,2]`|`r CM_SVMred$table[1,2]`|
